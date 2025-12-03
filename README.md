@@ -1,6 +1,6 @@
-# LangChain + Streamlit Chat (OpenAI) + Wasmer
+# LangChain + Streamlit Chat + Wasmer
 
-This example shows how to run a **LangChain** chat app with **Streamlit** on **Wasmer Edge**, streaming assistant tokens to the UI as they’re generated.
+This example shows how to host a **Streamlit** chat UI backed by **LangChain** and OpenAI on **Wasmer Edge**.
 
 ## Demo
 
@@ -8,95 +8,30 @@ https://langchain-starter-template.wasmer.app/
 
 ## How it Works
 
-All logic lives in **`app.py`**, but you can think of it in sections.
+`Home.py` renders the entire chat experience:
 
-### Sidebar (API Key input)
+* The sidebar captures an OpenAI API key via `st.text_input(..., type="password")`.
+* Chat history is stored in `st.session_state["messages"]` as LangChain `ChatMessage` objects so conversations persist across reruns.
+* `StreamHandler`, a custom `BaseCallbackHandler`, streams tokens into the UI by updating a placeholder container.
+* When a user submits a prompt, the app creates `ChatOpenAI(streaming=True, callbacks=[stream_handler])`, invokes it with the full conversation history, and appends the assistant reply back into session state.
 
-The sidebar captures the user’s OpenAI API key:
-
-```python
-with st.sidebar:
-    openai_api_key = st.text_input("OpenAI API Key", type="password")
-```
-
-### Session State (chat history)
-
-We persist a running conversation using LangChain’s `ChatMessage`:
-
-```python
-if "messages" not in st.session_state:
-    st.session_state["messages"] = [ChatMessage(role="assistant", content="How can I help you?")]
-```
-
-Existing messages are rendered with Streamlit’s chat components.
-
-### Streaming Callback
-
-A custom callback handler streams tokens into the UI as they arrive:
-
-```python
-class StreamHandler(BaseCallbackHandler):
-    def __init__(self, container, initial_text=""):
-        self.container = container
-        self.text = initial_text
-    def on_llm_new_token(self, token: str, **kwargs):
-        self.text += token
-        self.container.markdown(self.text)
-```
-
-### Chat Loop + Model Call
-
-On each user prompt, we:
-
-1. Append the user message to history
-2. Validate the API key
-3. Create `ChatOpenAI` with `streaming=True` and our `StreamHandler`
-4. Invoke the model with the full `st.session_state.messages`
-5. Append the assistant response to history
-
-```python
-llm = ChatOpenAI(openai_api_key=openai_api_key, streaming=True, callbacks=[stream_handler])
-response = llm.invoke(st.session_state.messages)
-```
+Because Streamlit re-runs the script on every interaction, keeping everything in session state is critical.
 
 ## Running Locally
 
-1. Create a `requirements.txt`:
-
-```
-streamlit
-langchain
-langchain-openai
-openai
-```
-
-2. Install dependencies:
-
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+streamlit run Home.py
 ```
 
-3. Run the app:
+Open the local URL Streamlit prints, enter your OpenAI API key in the sidebar, and start chatting.
 
-```bash
-streamlit run app.py
-```
+## Deploying to Wasmer (Overview)
 
-4. Open your browser at the local URL shown by Streamlit, enter your **OpenAI API key** in the sidebar, and start chatting.
+1. Bundle `Home.py` and `requirements.txt` (or a `pyproject.toml`).
+2. Configure the start command to run Streamlit, e.g. `streamlit run Home.py --server.port=$PORT --server.address=0.0.0.0`.
+3. Deploy to Wasmer Edge, set your `OPENAI_API_KEY` secret (or continue using the sidebar prompt), and visit `https://<your-subdomain>.wasmer.app/`.
 
-> Tip: You can also set `OPENAI_API_KEY` in your environment and default to it in code if you like, but this demo reads the key from the sidebar field.
-
-## Routes & Behavior
-
-* **GET /** → Renders the Streamlit chat UI.
-* Messages are streamed token-by-token using the callback so users see responses typing out live.
-
-## Deploying to Wasmer Edge (Overview)
-
-1. Include `app.py` and `requirements.txt` in your project.
-2. Deploy to Wasmer Edge and point the web process/entrypoint to run Streamlit (e.g., `streamlit run app.py --server.port=$PORT --server.address=0.0.0.0`).
-3. Visit `https://<your-subdomain>.wasmer.app/` and provide your OpenAI API key in the sidebar.
-
----
-
-⚠️ **Security note:** Never hardcode API keys in source control. Prefer runtime input (as in the sidebar), environment variables, or platform secrets.
+> ⚠️ Never commit real API keys—use Wasmer secrets or prompt users at runtime like this demo.
